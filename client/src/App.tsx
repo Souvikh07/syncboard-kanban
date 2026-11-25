@@ -20,26 +20,21 @@ import {
 } from "@kanban/shared";
 import { BoardSkeleton } from "./components/BoardSkeleton.js";
 import { Column } from "./components/Column.js";
+import { FilterBar } from "./components/FilterBar.js";
 import { TaskCard } from "./components/TaskCard.js";
 import { TaskDrawer } from "./components/TaskDrawer.js";
 import { ToastContainer } from "./components/ToastContainer.js";
 import { BoardProvider, useBoardStore } from "./state/boardStore.js";
-
-function readTaskIdFromUrl(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  const val = params.get("task");
-  return val && val.trim() ? val.trim() : null;
-}
-
-function writeTaskIdToUrl(taskId: string | null): void {
-  const url = new URL(window.location.href);
-  if (taskId) {
-    url.searchParams.set("task", taskId);
-  } else {
-    url.searchParams.delete("task");
-  }
-  window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`);
-}
+import {
+  DEFAULT_FILTERS,
+  deriveAssignees,
+  filterTasks,
+  isFilterActive,
+  parseUrlBoardState,
+  serializeUrlBoardState,
+  type BoardFilters,
+  type PriorityFilter,
+} from "./state/filters.js";
 
 interface DragPlacement {
   taskId: string;
@@ -52,6 +47,23 @@ function sortTasks(list: readonly Task[]): Task[] {
   return [...list].sort(
     (a, b) => a.position - b.position || a.updatedAt.localeCompare(b.updatedAt)
   );
+}
+
+function syncUrl(
+  filters: BoardFilters,
+  taskId: string | null,
+  mode: "push" | "replace"
+): void {
+  const nextSearch = serializeUrlBoardState(
+    { filters, taskId },
+    window.location.search
+  );
+  const nextUrl = `${window.location.pathname}${nextSearch}${window.location.hash}`;
+  if (mode === "replace") {
+    window.history.replaceState({}, "", nextUrl);
+  } else {
+    window.history.pushState({}, "", nextUrl);
+  }
 }
 
 function BoardWorkspace(): React.JSX.Element {
@@ -68,26 +80,72 @@ function BoardWorkspace(): React.JSX.Element {
     flushBufferedEventsForDrop,
   } = useBoardStore();
 
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => readTaskIdFromUrl());
+  const initialUrlState = useMemo(() => parseUrlBoardState(window.location.search), []);
+
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(initialUrlState.taskId);
+  const [filters, setFilters] = useState<BoardFilters>(initialUrlState.filters);
+  const [searchInput, setSearchInput] = useState<string>(initialUrlState.filters.q);
   const [dragPlacement, setDragPlacement] = useState<DragPlacement | null>(null);
 
+  // Debounce title search (~250ms) and sync with history.replaceState
+  useEffect(() => {
+    if (searchInput === filters.q) return;
+    const timer = window.setTimeout(() => {
+      const nextFilters: BoardFilters = { ...filters, q: searchInput };
+      setFilters(nextFilters);
+      syncUrl(nextFilters, selectedTaskId, "replace");
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [filters, searchInput, selectedTaskId]);
+
+  // Restore filter + drawer state on browser back/forward
   useEffect(() => {
     const onPopState = () => {
-      setSelectedTaskId(readTaskIdFromUrl());
+      const parsed = parseUrlBoardState(window.location.search);
+      setFilters(parsed.filters);
+      setSearchInput(parsed.filters.q);
+      setSelectedTaskId(parsed.taskId);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const handleSelectTask = useCallback((taskId: string) => {
-    setSelectedTaskId(taskId);
-    writeTaskIdToUrl(taskId);
-  }, []);
+  const handleSelectTask = useCallback(
+    (taskId: string) => {
+      setSelectedTaskId(taskId);
+      syncUrl(filters, taskId, "push");
+    },
+    [filters]
+  );
 
   const handleCloseDrawer = useCallback(() => {
     setSelectedTaskId(null);
-    writeTaskIdToUrl(null);
-  }, []);
+    syncUrl(filters, null, "push");
+  }, [filters]);
+
+  const handlePriorityChange = useCallback(
+    (priority: PriorityFilter) => {
+      const nextFilters: BoardFilters = { ...filters, priority };
+      setFilters(nextFilters);
+      syncUrl(nextFilters, selectedTaskId, "push");
+    },
+    [filters, selectedTaskId]
+  );
+
+  const handleAssigneeChange = useCallback(
+    (assignee: string) => {
+      const nextFilters: BoardFilters = { ...filters, assignee };
+      setFilters(nextFilters);
+      syncUrl(nextFilters, selectedTaskId, "push");
+    },
+    [filters, selectedTaskId]
+  );
+
+  const handleClearFilters = useCallback(() => {
+    setSearchInput("");
+    setFilters(DEFAULT_FILTERS);
+    syncUrl(DEFAULT_FILTERS, selectedTaskId, "push");
+  }, [selectedTaskId]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -98,13 +156,21 @@ function BoardWorkspace(): React.JSX.Element {
     })
   );
 
-  // Base grouped & sorted tasks from server/optimistic state
+  const allTasks = board?.tasks ?? [];
+  const assignees = useMemo(() => deriveAssignees(allTasks), [allTasks]);
+  const filteringActive = isFilterActive(filters);
+  const filteredTasks = useMemo(
+    () => filterTasks(allTasks, filters),
+    [allTasks, filters]
+  );
+
+  // Unfiltered counts per column + sorted base tasks for DnD
   const baseTasksByColumn = useMemo(() => {
     const map = new Map<ColumnId, Task[]>();
     for (const col of COLUMNS) {
       map.set(col.id, []);
     }
-    for (const task of board?.tasks ?? []) {
+    for (const task of allTasks) {
       const list = map.get(task.status);
       if (list) {
         list.push(task);
@@ -114,12 +180,32 @@ function BoardWorkspace(): React.JSX.Element {
       map.set(colId, sortTasks(list));
     }
     return map;
-  }, [board?.tasks]);
+  }, [allTasks]);
 
-  // Apply temporary cross-column preview placement during an active drag
-  const displayTasksByColumn = useMemo(() => {
-    if (!dragPlacement) {
+  const filteredTasksByColumn = useMemo(() => {
+    if (!filteringActive) {
       return baseTasksByColumn;
+    }
+    const map = new Map<ColumnId, Task[]>();
+    for (const col of COLUMNS) {
+      map.set(col.id, []);
+    }
+    for (const task of filteredTasks) {
+      const list = map.get(task.status);
+      if (list) {
+        list.push(task);
+      }
+    }
+    for (const [colId, list] of map.entries()) {
+      map.set(colId, sortTasks(list));
+    }
+    return map;
+  }, [baseTasksByColumn, filteredTasks, filteringActive]);
+
+  // Apply temporary cross-column preview placement during an active drag (unfiltered)
+  const displayTasksByColumn = useMemo(() => {
+    if (!dragPlacement || filteringActive) {
+      return filteredTasksByColumn;
     }
     const map = new Map<ColumnId, Task[]>();
     let draggedTask: Task | undefined;
@@ -146,7 +232,7 @@ function BoardWorkspace(): React.JSX.Element {
     }
 
     return map;
-  }, [baseTasksByColumn, dragPlacement]);
+  }, [baseTasksByColumn, dragPlacement, filteredTasksByColumn, filteringActive]);
 
   const activeDragTask = useMemo(() => {
     if (!dragPlacement || !board) return null;
@@ -155,6 +241,7 @@ function BoardWorkspace(): React.JSX.Element {
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
+      if (filteringActive) return;
       const id = String(event.active.id);
       const task = board?.tasks.find((t) => t.id === id);
       if (!task) return;
@@ -167,7 +254,7 @@ function BoardWorkspace(): React.JSX.Element {
         targetIndex: Math.max(0, index),
       });
     },
-    [baseTasksByColumn, board?.tasks]
+    [baseTasksByColumn, board?.tasks, filteringActive]
   );
 
   const handleDragOver = useCallback(
@@ -198,7 +285,6 @@ function BoardWorkspace(): React.JSX.Element {
         const overIndex = listWithoutActive.findIndex((t) => t.id === overId);
         if (overIndex === -1) return;
 
-        // If moving within the same column or dropping below midpoint of hovered card
         const activeRect = active.rect.current.translated;
         const isBelow =
           activeRect !== null &&
@@ -252,7 +338,6 @@ function BoardWorkspace(): React.JSX.Element {
       const targetColumn = placement.targetColumn;
 
       if (targetColumn === activeTask.status) {
-        // Same-column reorder
         const colTasks = baseTasksByColumn.get(targetColumn) ?? [];
         const oldIndex = colTasks.findIndex((t) => t.id === activeId);
         if (oldIndex === -1) return;
@@ -273,7 +358,6 @@ function BoardWorkspace(): React.JSX.Element {
         const { position } = computeInsertPosition(prevPos, nextPos);
         updateTask(activeId, { position });
       } else {
-        // Cross-column move
         const targetList = (baseTasksByColumn.get(targetColumn) ?? []).filter(
           (t) => t.id !== activeId
         );
@@ -324,6 +408,16 @@ function BoardWorkspace(): React.JSX.Element {
       </header>
 
       <main className="main-content">
+        <FilterBar
+          searchInput={searchInput}
+          filters={filters}
+          assignees={assignees}
+          onSearchInputChange={setSearchInput}
+          onPriorityChange={handlePriorityChange}
+          onAssigneeChange={handleAssigneeChange}
+          onClearFilters={handleClearFilters}
+        />
+
         {isLoading && <BoardSkeleton />}
 
         {isError && (
@@ -355,7 +449,7 @@ function BoardWorkspace(): React.JSX.Element {
                     column={col}
                     tasks={colTasks}
                     totalCount={totalCount}
-                    isFiltered={false}
+                    isFiltered={filteringActive}
                     onSelectTask={handleSelectTask}
                   />
                 );
