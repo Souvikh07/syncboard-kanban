@@ -398,7 +398,11 @@ function BoardWorkspace(): React.JSX.Element {
       <header className="topbar">
         <div className="topbar__brand">
           <div className="topbar__logo" aria-hidden="true">
-            K
+            <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
+              <rect x="4" y="5" width="6" height="16" rx="2" fill="#ffffff" />
+              <rect x="13" y="5" width="6" height="22" rx="2" fill="#ffffff" fillOpacity="0.9" />
+              <rect x="22" y="5" width="6" height="12" rx="2" fill="#ffffff" fillOpacity="0.8" />
+            </svg>
           </div>
           <h1 className="topbar__title">SyncBoard Kanban</h1>
         </div>
