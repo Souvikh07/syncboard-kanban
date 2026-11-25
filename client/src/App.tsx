@@ -63,8 +63,6 @@ function BoardWorkspace(): React.JSX.Element {
     error,
     refetchBoard,
     connectionStatus,
-    forceFailNext,
-    setForceFailNext,
     updateTask,
     flushBufferedEventsForDrop,
   } = useBoardStore();
@@ -406,15 +404,6 @@ function BoardWorkspace(): React.JSX.Element {
         </div>
 
         <div className="topbar__controls">
-          <label className="fail-toggle" title="Force ?fail=1 on mutations for testing rollback">
-            <input
-              type="checkbox"
-              checked={forceFailNext}
-              onChange={(e) => setForceFailNext(e.target.checked)}
-            />
-            <span>Simulate Failure (?fail=1)</span>
-          </label>
-
           <div
             className={`status-pill status-pill--${connectionStatus}`}
             role="status"

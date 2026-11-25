@@ -52,8 +52,6 @@ interface BoardContextValue {
   pushToast: (toast: Omit<ToastMessage, "id">) => void;
   connectionStatus: ConnectionStatus;
   setConnectionStatus: (status: ConnectionStatus) => void;
-  forceFailNext: boolean;
-  setForceFailNext: (val: boolean) => void;
   createTask: (input: CreateTaskInput) => void;
   updateTask: (taskId: string, patch: UpdateTaskInput) => void;
   deleteTask: (taskId: string) => void;
@@ -98,7 +96,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
   const [pendingTaskIds, setPendingTaskIds] = useState<ReadonlySet<string>>(new Set());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("reconnecting");
-  const [forceFailNext, setForceFailNext] = useState<boolean>(false);
 
   const syncPendingTaskIds = useCallback(() => {
     setPendingTaskIds(new Set(pendingRef.current.keys()));
@@ -221,7 +218,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
         };
       });
 
-      void createTaskRequest(input, mutationId, { forceFail: forceFailNext })
+      void createTaskRequest(input, mutationId)
         .then((created) => {
           savingTempIdsRef.current.delete(tempId);
           syncSavingTaskIds();
@@ -254,14 +251,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
           completeOwnMutation(mutationId);
         });
     },
-    [
-      completeOwnMutation,
-      forceFailNext,
-      pushToast,
-      queryClient,
-      syncSavingTaskIds,
-      trackOwnMutation,
-    ]
+    [completeOwnMutation, pushToast, queryClient, syncSavingTaskIds, trackOwnMutation]
   );
 
   const updateTask = useCallback(
@@ -300,13 +290,10 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
       });
 
       const changedFields = optimisticResult.changedFields;
-      const shouldForceFail = forceFailNext;
 
       enqueueTaskMutation(taskId, async () => {
         try {
-          const serverTask = await updateTaskRequest(taskId, patch, mutationId, {
-            forceFail: shouldForceFail,
-          });
+          const serverTask = await updateTaskRequest(taskId, patch, mutationId);
           queryClient.setQueryData<BoardResponse>(["board"], (old) => {
             if (!old) return old;
             const res = applyUpdateSuccess(
@@ -349,7 +336,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
     [
       completeOwnMutation,
       enqueueTaskMutation,
-      forceFailNext,
       pushToast,
       queryClient,
       syncPendingTaskIds,
@@ -378,11 +364,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
         };
       });
 
-      const shouldForceFail = forceFailNext;
-
       enqueueTaskMutation(taskId, async () => {
         try {
-          await deleteTaskRequest(taskId, mutationId, { forceFail: shouldForceFail });
+          await deleteTaskRequest(taskId, mutationId);
           pendingRef.current.delete(taskId);
           syncPendingTaskIds();
         } catch (err: unknown) {
@@ -408,7 +392,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
     [
       completeOwnMutation,
       enqueueTaskMutation,
-      forceFailNext,
       pushToast,
       queryClient,
       syncPendingTaskIds,
@@ -540,8 +523,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
       pushToast,
       connectionStatus,
       setConnectionStatus,
-      forceFailNext,
-      setForceFailNext,
       createTask,
       updateTask,
       deleteTask,
@@ -561,7 +542,6 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
       dismissToast,
       pushToast,
       connectionStatus,
-      forceFailNext,
       createTask,
       updateTask,
       deleteTask,

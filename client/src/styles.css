@@ -199,8 +199,8 @@ body {
   display: flex;
 }
 
-.search-box__input {
-  padding-left: 32px;
+.search-box .search-box__input {
+  padding-left: 34px;
 }
 
 .filter-bar__note {

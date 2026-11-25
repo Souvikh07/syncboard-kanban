@@ -82,7 +82,7 @@ npm run format:check
 2. **Concurrent field edits**: In Tab A, open a task drawer and edit its **Title** (click outside or wait). In Tab B, edit the same task's **Priority** and **Description**. Both changes merge in both tabs without overwriting each other.
 3. **Drag during a remote update**: Start dragging a card in **Tab A** and hold it over another column. In **Tab B**, edit or move a card in that target column. Release the card in **Tab A** — buffered remote updates flush cleanly after drop without reordering mid-drag.
 4. **Remote delete while editing/dragging**: Open a task drawer (or hold it in a drag) in **Tab A**, then delete that same task in **Tab B**. Tab A closes the drawer / cancels the drag and displays `"This task was deleted by someone else"`.
-5. **Forced failure & rollback (`?fail=1`)**: Toggle **"Simulate Failure (?fail=1)"** in the top bar (or open `http://localhost:5173/?fail=1`), drag a card or edit a field, observe the optimistic move followed by automatic rollback and an error toast with **Retry**. Uncheck the toggle and click **Retry** to commit.
+5. **Forced failure & rollback (`?fail=1`)**: Open `http://localhost:5173/?fail=1`, drag a card or edit a field, observe the optimistic move followed by automatic rollback and an error toast with **Retry**. Remove `?fail=1` from the URL (or send a normal request without `?fail=1`) and click **Retry** to commit.
 
 ---
 
