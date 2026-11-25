@@ -1,11 +1,11 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import { MongoMemoryServer } from "mongodb-memory-server";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type Database from "better-sqlite3";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { BoardResponse, SSEEvent, Task } from "@kanban/shared";
 import { createApp } from "../src/app.js";
-import { initDatabase } from "../src/db.js";
+import { initDatabase, seedIfEmpty, type DatabaseContext } from "../src/db.js";
 import { SSEBroker } from "../src/sse.js";
 
 interface ParsedSSEMessage {
@@ -91,22 +91,43 @@ function connectSSE(
   };
 }
 
-describe("Kanban Server API & SSE", () => {
-  let db: Database.Database;
+describe("Kanban Server API & SSE (MongoDB)", () => {
+  let mongod: MongoMemoryServer;
+  let dbCtx: DatabaseContext;
   let sse: SSEBroker;
 
-  beforeEach(() => {
-    db = initDatabase(":memory:", { seed: true });
+  beforeAll(async () => {
+    mongod = await MongoMemoryServer.create();
+    dbCtx = await initDatabase(mongod.getUri(), { seed: false, dbName: "kanban-test" });
+  });
+
+  afterAll(async () => {
+    await dbCtx.client.close();
+    await mongod.stop();
+  });
+
+  beforeEach(async () => {
+    await dbCtx.tasks.deleteMany({});
+    await seedIfEmpty(dbCtx.tasks);
     sse = new SSEBroker({ heartbeatMs: 0 });
   });
 
   afterEach(() => {
     sse.close();
-    db.close();
   });
 
-  it("returns /health and seeded /api/board with 20 tasks across 4 columns", async () => {
-    const app = createApp({ db, sse, failRate: 0, minLatencyMs: 0, maxLatencyMs: 0 });
+  it("creates { status: 1, position: 1 } index, seeds 20 tasks, and never leaks _id", async () => {
+    const indexes = await dbCtx.tasks.indexes();
+    const hasStatusPosIndex = indexes.some((idx) => idx.key.status === 1 && idx.key.position === 1);
+    expect(hasStatusPosIndex).toBe(true);
+
+    const app = createApp({
+      tasks: dbCtx.tasks,
+      sse,
+      failRate: 0,
+      minLatencyMs: 0,
+      maxLatencyMs: 0,
+    });
 
     const healthRes = await request(app).get("/health");
     expect(healthRes.status).toBe(200);
@@ -117,10 +138,20 @@ describe("Kanban Server API & SSE", () => {
     const board = boardRes.body as BoardResponse;
     expect(board.columns.map((c) => c.id)).toEqual(["backlog", "todo", "in-progress", "done"]);
     expect(board.tasks.length).toBe(20);
+    for (const task of board.tasks) {
+      expect(typeof task.id).toBe("string");
+      expect("_id" in task).toBe(false);
+    }
   });
 
   it("validates POST and PATCH payloads with zod and returns 400/404", async () => {
-    const app = createApp({ db, sse, failRate: 0, minLatencyMs: 0, maxLatencyMs: 0 });
+    const app = createApp({
+      tasks: dbCtx.tasks,
+      sse,
+      failRate: 0,
+      minLatencyMs: 0,
+      maxLatencyMs: 0,
+    });
 
     const badCreate = await request(app).post("/api/tasks").send({ title: "" });
     expect(badCreate.status).toBe(400);
@@ -143,17 +174,24 @@ describe("Kanban Server API & SSE", () => {
     expect(missingDelete.status).toBe(404);
   });
 
-  it("supports full CRUD and failure injection (?fail=1 and failRate=1)", async () => {
-    const app = createApp({ db, sse, failRate: 0, minLatencyMs: 0, maxLatencyMs: 0 });
+  it("supports full CRUD without leaking _id and honors failure injection (?fail=1 and failRate=1)", async () => {
+    const app = createApp({
+      tasks: dbCtx.tasks,
+      sse,
+      failRate: 0,
+      minLatencyMs: 0,
+      maxLatencyMs: 0,
+    });
 
     const createdRes = await request(app)
       .post("/api/tasks")
       .set("X-Client-Id", "tab-1")
       .set("X-Mutation-Id", "mut-1")
-      .send({ title: "New Task", priority: "high", assignee: "Aria", status: "todo" });
+      .send({ title: "New Task", priority: "high", assignee: "Aarav", status: "todo" });
     expect(createdRes.status).toBe(201);
     const created = createdRes.body as Task;
     expect(created.id).toBeTruthy();
+    expect("_id" in created).toBe(false);
     expect(created.updatedAt).toBeTruthy();
     expect(created.position).toBe(7 * 1024);
 
@@ -165,6 +203,7 @@ describe("Kanban Server API & SSE", () => {
     expect(patched.title).toBe("Edited Task");
     expect(patched.status).toBe("done");
     expect(patched.position).toBe(5 * 1024);
+    expect("_id" in patched).toBe(false);
 
     const forcedFail = await request(app)
       .patch(`/api/tasks/${created.id}?fail=1`)
@@ -174,14 +213,26 @@ describe("Kanban Server API & SSE", () => {
     const delRes = await request(app).delete(`/api/tasks/${created.id}`);
     expect(delRes.status).toBe(204);
 
-    const failingApp = createApp({ db, sse, failRate: 1, minLatencyMs: 0, maxLatencyMs: 0 });
+    const failingApp = createApp({
+      tasks: dbCtx.tasks,
+      sse,
+      failRate: 1,
+      minLatencyMs: 0,
+      maxLatencyMs: 0,
+    });
     const rateFail = await request(failingApp).post("/api/tasks").send({ title: "Blocked" });
     expect(rateFail.status).toBe(500);
   });
 
-  it("rebalances a column in one transaction and emits task.updated for every changed task", async () => {
-    const cleanDb = initDatabase(":memory:", { seed: false });
-    const app = createApp({ db: cleanDb, sse, failRate: 0, minLatencyMs: 0, maxLatencyMs: 0 });
+  it("rebalances a column via bulkWrite and emits task.updated for every changed task", async () => {
+    await dbCtx.tasks.deleteMany({});
+    const app = createApp({
+      tasks: dbCtx.tasks,
+      sse,
+      failRate: 0,
+      minLatencyMs: 0,
+      maxLatencyMs: 0,
+    });
 
     const t1 = (await request(app).post("/api/tasks").send({ title: "T1", status: "todo" }))
       .body as Task;
@@ -195,7 +246,6 @@ describe("Kanban Server API & SSE", () => {
     const { port } = server.address() as AddressInfo;
     const stream = connectSSE(`http://127.0.0.1:${port}/api/events`);
 
-    // Wait briefly for SSE connection
     await new Promise((r) => setTimeout(r, 50));
 
     // Move t3 right next to t1 within < 1e-6 gap
@@ -206,7 +256,6 @@ describe("Kanban Server API & SSE", () => {
       .send({ position: t1.position + 1e-7 });
 
     expect(patchRes.status).toBe(200);
-    // t1=1024, t3=2048, t2=3072 -> t3 and t2 both changed positions!
     await stream.waitForCount(2);
 
     const board = (await request(app).get("/api/board")).body as BoardResponse;
@@ -225,11 +274,16 @@ describe("Kanban Server API & SSE", () => {
 
     stream.close();
     server.close();
-    cleanDb.close();
   });
 
   it("emits SSE events with originClientId, mutationId, id:, and supports Last-Event-ID replay", async () => {
-    const app = createApp({ db, sse, failRate: 0, minLatencyMs: 0, maxLatencyMs: 0 });
+    const app = createApp({
+      tasks: dbCtx.tasks,
+      sse,
+      failRate: 0,
+      minLatencyMs: 0,
+      maxLatencyMs: 0,
+    });
     const server = app.listen(0);
     const { port } = server.address() as AddressInfo;
 
@@ -251,14 +305,12 @@ describe("Kanban Server API & SSE", () => {
     expect(firstMsg.data.mutationId).toBe("mut-100");
     stream1.close();
 
-    // Perform another mutation while disconnected
     await request(app)
       .patch(`/api/tasks/${created.id}`)
       .set("X-Client-Id", "client-abc")
       .set("X-Mutation-Id", "mut-101")
       .send({ title: "SSE Task Updated" });
 
-    // Reconnect with Last-Event-ID: 1 -> should replay event 2
     const stream2 = connectSSE(`http://127.0.0.1:${port}/api/events`, {
       "Last-Event-ID": "1",
     });

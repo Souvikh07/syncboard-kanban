@@ -1,17 +1,15 @@
 services:
   - type: web
     name: syncboard-kanban
-    runtime: docker
+    runtime: node
     plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
       - key: FAIL_RATE
         value: "0"
-      - key: DB_PATH
-        value: /data/kanban.db
-    disk:
-      name: kanban-sqlite-data
-      mountPath: /data
-      sizeGB: 1
+      - key: MONGODB_URI
+        sync: false

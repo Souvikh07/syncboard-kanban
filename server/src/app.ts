@@ -2,8 +2,14 @@ import cors from "cors";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import express, { type Express, type NextFunction, type Request, type Response } from "express";
-import type Database from "better-sqlite3";
+import express, {
+  type Express,
+  type NextFunction,
+  type Request,
+  type RequestHandler,
+  type Response,
+} from "express";
+import type { Collection } from "mongodb";
 import {
   COLUMNS,
   MIN_POSITION_GAP,
@@ -14,13 +20,13 @@ import {
   type SSEEvent,
   type Task,
 } from "@kanban/shared";
-import { nextIsoTimestamp } from "./db.js";
+import { docToTask, nextIsoTimestamp, type TaskDoc } from "./db.js";
 import { createFailureInjectionMiddleware, extractMutationMeta } from "./middleware.js";
 import type { SSEBroker } from "./sse.js";
 import { createTaskSchema, updateTaskSchema } from "./validation.js";
 
 export interface AppConfig {
-  db: Database.Database;
+  tasks: Collection<TaskDoc>;
   sse: SSEBroker;
   failRate?: number;
   minLatencyMs?: number;
@@ -47,9 +53,17 @@ function getDefaultLatency(): { min: number; max: number } {
   return { min: 100, max: 400 };
 }
 
+function asyncHandler(
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
+): RequestHandler {
+  return (req, res, next) => {
+    void fn(req, res, next).catch(next);
+  };
+}
+
 export function createApp(config: AppConfig): Express {
   const app = express();
-  const { db, sse } = config;
+  const { tasks, sse } = config;
   const latencyDefaults = getDefaultLatency();
   const failRate = config.failRate ?? getDefaultFailRate();
   const minLatencyMs = config.minLatencyMs ?? latencyDefaults.min;
@@ -79,45 +93,45 @@ export function createApp(config: AppConfig): Express {
   });
 
   // Fetch board
-  app.get("/api/board", (_req: Request, res: Response) => {
-    const tasks = db
-      .prepare("SELECT * FROM tasks ORDER BY status ASC, position ASC, updatedAt ASC")
-      .all() as Task[];
-    res.json({
-      columns: COLUMNS,
-      tasks,
-    });
-  });
+  app.get(
+    "/api/board",
+    asyncHandler(async (_req: Request, res: Response) => {
+      const docs = await tasks.find({}).sort({ status: 1, position: 1, updatedAt: 1 }).toArray();
+      res.json({
+        columns: COLUMNS,
+        tasks: docs.map(docToTask),
+      });
+    })
+  );
 
   // Apply failure injection & simulated latency to mutating /api/tasks endpoints
   app.use("/api/tasks", createFailureInjectionMiddleware({ failRate, minLatencyMs, maxLatencyMs }));
 
-  const selectTaskStmt = db.prepare("SELECT * FROM tasks WHERE id = ?");
-  const selectColumnStmt = db.prepare(
-    "SELECT * FROM tasks WHERE status = ? ORDER BY position ASC, updatedAt DESC, id ASC"
-  );
-  const maxPositionStmt = db.prepare("SELECT MAX(position) as maxPos FROM tasks WHERE status = ?");
-  const insertTaskStmt = db.prepare(`
-    INSERT INTO tasks (id, title, description, priority, assignee, status, position, updatedAt)
-    VALUES (@id, @title, @description, @priority, @assignee, @status, @position, @updatedAt)
-  `);
-  const updatePositionStmt = db.prepare(
-    "UPDATE tasks SET position = ?, updatedAt = ? WHERE id = ?"
-  );
-  const deleteTaskStmt = db.prepare("DELETE FROM tasks WHERE id = ?");
+  async function getMaxColumnPosition(status: ColumnId): Promise<number | null> {
+    const top = await tasks.find({ status }).sort({ position: -1 }).limit(1).next();
+    return top ? top.position : null;
+  }
+
+  async function getColumnTasksSorted(status: ColumnId): Promise<Task[]> {
+    const docs = await tasks
+      .find({ status })
+      .sort({ position: 1, updatedAt: -1, _id: 1 })
+      .toArray();
+    return docs.map(docToTask);
+  }
 
   /**
-   * Rebalances a column to 1024-step integers if any adjacent gap < 1e-6
-   * or if the leading position dropped too close to zero.
+   * Rebalances a column to 1024-step integers using a single bulkWrite if any
+   * adjacent gap < 1e-6 or if the leading position dropped too close to zero.
    */
-  function maybeRebalanceColumn(
+  async function maybeRebalanceColumn(
     status: ColumnId,
     primaryTaskId: string,
     eventsToEmit: SSEEvent[],
     meta: { originClientId: string | null; mutationId: string | null },
     baseTimestamp: string
-  ): Task {
-    const colTasks = selectColumnStmt.all(status) as Task[];
+  ): Promise<Task> {
+    const colTasks = await getColumnTasksSorted(status);
     const positions = colTasks.map((t) => t.position);
     const firstPos = positions[0];
     const needs =
@@ -126,10 +140,19 @@ export function createApp(config: AppConfig): Express {
     if (needs) {
       const updates = computeRebalancedPositions(colTasks);
       const rebalanceTs = updates.length > 0 ? nextIsoTimestamp() : baseTimestamp;
-      for (const u of updates) {
-        updatePositionStmt.run(u.position, rebalanceTs, u.id);
+
+      if (updates.length > 0) {
+        await tasks.bulkWrite(
+          updates.map((u) => ({
+            updateOne: {
+              filter: { _id: u.id },
+              update: { $set: { position: u.position, updatedAt: rebalanceTs } },
+            },
+          }))
+        );
       }
-      const updatedColTasks = selectColumnStmt.all(status) as Task[];
+
+      const updatedColTasks = await getColumnTasksSorted(status);
       const changedIds = new Set(updates.map((u) => u.id));
       changedIds.add(primaryTaskId);
 
@@ -151,7 +174,11 @@ export function createApp(config: AppConfig): Express {
       }
     }
 
-    const primary = selectTaskStmt.get(primaryTaskId) as Task;
+    const doc = await tasks.findOne({ _id: primaryTaskId });
+    if (!doc) {
+      throw new Error(`Task ${primaryTaskId} vanished during update`);
+    }
+    const primary = docToTask(doc);
     eventsToEmit.push({
       type: "task.updated",
       task: primary,
@@ -163,28 +190,29 @@ export function createApp(config: AppConfig): Express {
   }
 
   // Create task
-  app.post("/api/tasks", (req: Request, res: Response) => {
-    const parsed = createTaskSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({
-        error: parsed.error.issues.map((i) => i.message).join("; "),
-      });
-      return;
-    }
-
-    const meta = req.mutationMeta ?? { originClientId: null, mutationId: null };
-    const input = parsed.data;
-
-    const result = db.transaction(() => {
-      const now = nextIsoTimestamp();
-      let position = input.position;
-      if (position === undefined) {
-        const row = maxPositionStmt.get(input.status) as { maxPos: number | null };
-        position = row.maxPos === null ? POSITION_STEP : row.maxPos + POSITION_STEP;
+  app.post(
+    "/api/tasks",
+    asyncHandler(async (req: Request, res: Response) => {
+      const parsed = createTaskSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: parsed.error.issues.map((i) => i.message).join("; "),
+        });
+        return;
       }
 
-      const newTask: Task = {
-        id: crypto.randomUUID(),
+      const meta = req.mutationMeta ?? { originClientId: null, mutationId: null };
+      const input = parsed.data;
+      const now = nextIsoTimestamp();
+
+      let position = input.position;
+      if (position === undefined) {
+        const maxPos = await getMaxColumnPosition(input.status);
+        position = maxPos === null ? POSITION_STEP : maxPos + POSITION_STEP;
+      }
+
+      const newDoc: TaskDoc = {
+        _id: crypto.randomUUID(),
         title: input.title,
         description: input.description,
         priority: input.priority,
@@ -193,23 +221,35 @@ export function createApp(config: AppConfig): Express {
         position,
         updatedAt: now,
       };
-      insertTaskStmt.run(newTask);
+      await tasks.insertOne(newDoc);
+      const newTask = docToTask(newDoc);
 
       const eventsToEmit: SSEEvent[] = [];
-      const colTasks = selectColumnStmt.all(newTask.status) as Task[];
+      const colTasks = await getColumnTasksSorted(newTask.status);
       const positions = colTasks.map((t) => t.position);
       const firstPos = positions[0];
       const needs =
         columnNeedsRebalance(positions) || (firstPos !== undefined && firstPos <= MIN_POSITION_GAP);
 
+      let responseTask = newTask;
+
       if (needs) {
         const updates = computeRebalancedPositions(colTasks);
         const rebalanceTs = updates.length > 0 ? nextIsoTimestamp() : now;
-        for (const u of updates) {
-          updatePositionStmt.run(u.position, rebalanceTs, u.id);
+        if (updates.length > 0) {
+          await tasks.bulkWrite(
+            updates.map((u) => ({
+              updateOne: {
+                filter: { _id: u.id },
+                update: { $set: { position: u.position, updatedAt: rebalanceTs } },
+              },
+            }))
+          );
         }
-        const updatedColTasks = selectColumnStmt.all(newTask.status) as Task[];
+        const updatedColTasks = await getColumnTasksSorted(newTask.status);
         const createdFinal = updatedColTasks.find((t) => t.id === newTask.id) ?? newTask;
+        responseTask = createdFinal;
+
         eventsToEmit.push({
           type: "task.created",
           task: createdFinal,
@@ -231,150 +271,140 @@ export function createApp(config: AppConfig): Express {
             }
           }
         }
-        return { task: createdFinal, events: eventsToEmit };
+      } else {
+        eventsToEmit.push({
+          type: "task.created",
+          task: newTask,
+          originClientId: meta.originClientId,
+          mutationId: meta.mutationId,
+          updatedAt: newTask.updatedAt,
+        });
       }
 
-      eventsToEmit.push({
-        type: "task.created",
-        task: newTask,
-        originClientId: meta.originClientId,
-        mutationId: meta.mutationId,
-        updatedAt: newTask.updatedAt,
-      });
-      return { task: newTask, events: eventsToEmit };
-    })();
+      for (const ev of eventsToEmit) {
+        sse.emit(ev);
+      }
 
-    for (const ev of result.events) {
-      sse.emit(ev);
-    }
-
-    res.status(201).json(result.task);
-  });
+      res.status(201).json(responseTask);
+    })
+  );
 
   // Update task
-  app.patch("/api/tasks/:id", (req: Request, res: Response) => {
-    const parsed = updateTaskSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({
-        error: parsed.error.issues.map((i) => i.message).join("; "),
-      });
-      return;
-    }
-
-    const idParam = req.params.id;
-    const taskId = Array.isArray(idParam) ? idParam[0] : idParam;
-    if (!taskId) {
-      res.status(400).json({ error: "Missing task id" });
-      return;
-    }
-
-    const meta = req.mutationMeta ?? { originClientId: null, mutationId: null };
-    const input = parsed.data;
-
-    const result = db.transaction(() => {
-      const existing = selectTaskStmt.get(taskId) as Task | undefined;
-      if (!existing) {
-        return null;
+  app.patch(
+    "/api/tasks/:id",
+    asyncHandler(async (req: Request, res: Response) => {
+      const parsed = updateTaskSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: parsed.error.issues.map((i) => i.message).join("; "),
+        });
+        return;
       }
 
-      const nextStatus = input.status ?? existing.status;
-      let nextPosition = input.position ?? existing.position;
+      const idParam = req.params.id;
+      const taskId = Array.isArray(idParam) ? idParam[0] : idParam;
+      if (!taskId) {
+        res.status(400).json({ error: "Missing task id" });
+        return;
+      }
+
+      const existingDoc = await tasks.findOne({ _id: taskId });
+      if (!existingDoc) {
+        res.status(404).json({ error: "Task not found" });
+        return;
+      }
+
+      const meta = req.mutationMeta ?? { originClientId: null, mutationId: null };
+      const input = parsed.data;
+      const nextStatus = input.status ?? existingDoc.status;
+      let nextPosition = input.position ?? existingDoc.position;
 
       // If moved to a new column without an explicit position, append at the end of that column.
       if (
         input.status !== undefined &&
-        input.status !== existing.status &&
+        input.status !== existingDoc.status &&
         input.position === undefined
       ) {
-        const row = maxPositionStmt.get(nextStatus) as { maxPos: number | null };
-        nextPosition = row.maxPos === null ? POSITION_STEP : row.maxPos + POSITION_STEP;
+        const maxPos = await getMaxColumnPosition(nextStatus);
+        nextPosition = maxPos === null ? POSITION_STEP : maxPos + POSITION_STEP;
       }
 
       const now = nextIsoTimestamp();
-      const updatedFields: Task = {
-        id: existing.id,
-        title: input.title ?? existing.title,
-        description: input.description ?? existing.description,
-        priority: input.priority ?? existing.priority,
-        assignee: input.assignee ?? existing.assignee,
+      const updatedFields = {
+        title: input.title ?? existingDoc.title,
+        description: input.description ?? existingDoc.description,
+        priority: input.priority ?? existingDoc.priority,
+        assignee: input.assignee ?? existingDoc.assignee,
         status: nextStatus,
         position: nextPosition,
         updatedAt: now,
       };
 
-      db.prepare(
-        `
-        UPDATE tasks
-        SET title = @title,
-            description = @description,
-            priority = @priority,
-            assignee = @assignee,
-            status = @status,
-            position = @position,
-            updatedAt = @updatedAt
-        WHERE id = @id
-      `
-      ).run(updatedFields);
+      await tasks.updateOne({ _id: taskId }, { $set: updatedFields });
 
       const eventsToEmit: SSEEvent[] = [];
-      let finalTask = updatedFields;
+      let finalTask: Task = {
+        id: existingDoc._id,
+        ...updatedFields,
+      };
 
       if (input.position !== undefined || input.status !== undefined) {
-        finalTask = maybeRebalanceColumn(nextStatus, existing.id, eventsToEmit, meta, now);
+        finalTask = await maybeRebalanceColumn(
+          nextStatus,
+          existingDoc._id,
+          eventsToEmit,
+          meta,
+          now
+        );
       } else {
         eventsToEmit.push({
           type: "task.updated",
-          task: updatedFields,
+          task: finalTask,
           originClientId: meta.originClientId,
           mutationId: meta.mutationId,
-          updatedAt: updatedFields.updatedAt,
+          updatedAt: finalTask.updatedAt,
         });
       }
 
-      return { task: finalTask, events: eventsToEmit };
-    })();
+      for (const ev of eventsToEmit) {
+        sse.emit(ev);
+      }
 
-    if (!result) {
-      res.status(404).json({ error: "Task not found" });
-      return;
-    }
-
-    for (const ev of result.events) {
-      sse.emit(ev);
-    }
-
-    res.json(result.task);
-  });
+      res.json(finalTask);
+    })
+  );
 
   // Delete task
-  app.delete("/api/tasks/:id", (req: Request, res: Response) => {
-    const idParam = req.params.id;
-    const taskId = Array.isArray(idParam) ? idParam[0] : idParam;
-    if (!taskId) {
-      res.status(400).json({ error: "Missing task id" });
-      return;
-    }
+  app.delete(
+    "/api/tasks/:id",
+    asyncHandler(async (req: Request, res: Response) => {
+      const idParam = req.params.id;
+      const taskId = Array.isArray(idParam) ? idParam[0] : idParam;
+      if (!taskId) {
+        res.status(400).json({ error: "Missing task id" });
+        return;
+      }
 
-    const existing = selectTaskStmt.get(taskId) as Task | undefined;
-    if (!existing) {
-      res.status(404).json({ error: "Task not found" });
-      return;
-    }
+      const deleteResult = await tasks.deleteOne({ _id: taskId });
+      if (deleteResult.deletedCount === 0) {
+        res.status(404).json({ error: "Task not found" });
+        return;
+      }
 
-    deleteTaskStmt.run(taskId);
-    const meta = req.mutationMeta ?? { originClientId: null, mutationId: null };
-    const updatedAt = nextIsoTimestamp();
+      const meta = req.mutationMeta ?? { originClientId: null, mutationId: null };
+      const updatedAt = nextIsoTimestamp();
 
-    sse.emit({
-      type: "task.deleted",
-      id: taskId,
-      originClientId: meta.originClientId,
-      mutationId: meta.mutationId,
-      updatedAt,
-    });
+      sse.emit({
+        type: "task.deleted",
+        id: taskId,
+        originClientId: meta.originClientId,
+        mutationId: meta.mutationId,
+        updatedAt,
+      });
 
-    res.status(204).send();
-  });
+      res.status(204).send();
+    })
+  );
 
   // Serve built client statically in production (or when configured)
   const staticDir = config.staticDir;
@@ -389,7 +419,7 @@ export function createApp(config: AppConfig): Express {
     });
   }
 
-  // Fallback JSON error handler for malformed JSON bodies, etc.
+  // Fallback JSON error handler for malformed JSON bodies or async errors
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof SyntaxError && "status" in err) {
       res.status(400).json({ error: "Invalid JSON payload" });

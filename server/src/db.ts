@@ -1,7 +1,5 @@
-import Database from "better-sqlite3";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
+import { MongoClient, type Collection, type Db } from "mongodb";
 import { POSITION_STEP, type ColumnId, type Priority, type Task } from "@kanban/shared";
 
 let lastTimestampMs = 0;
@@ -14,6 +12,30 @@ export function nextIsoTimestamp(): string {
   const now = Date.now();
   lastTimestampMs = now > lastTimestampMs ? now : lastTimestampMs + 1;
   return new Date(lastTimestampMs).toISOString();
+}
+
+export interface TaskDoc {
+  _id: string;
+  title: string;
+  description: string;
+  priority: Priority;
+  assignee: string;
+  status: ColumnId;
+  position: number;
+  updatedAt: string;
+}
+
+export function docToTask(doc: TaskDoc): Task {
+  return {
+    id: doc._id,
+    title: doc.title,
+    description: doc.description,
+    priority: doc.priority,
+    assignee: doc.assignee,
+    status: doc.status,
+    position: doc.position,
+    updatedAt: doc.updatedAt,
+  };
 }
 
 interface SeedItem {
@@ -88,7 +110,7 @@ const SEED_TASKS: readonly SeedItem[] = [
   },
   {
     title: "Write position rebalancing integration tests",
-    description: "Verify 1e-6 threshold triggers a transactional 1024-step rebalance.",
+    description: "Verify 1e-6 threshold triggers a bulkWrite 1024-step rebalance.",
     priority: "high",
     assignee: "Vikram",
     status: "todo",
@@ -133,7 +155,7 @@ const SEED_TASKS: readonly SeedItem[] = [
     status: "in-progress",
   },
   {
-    title: "Configure single-service production Dockerfile",
+    title: "Configure single-service Render deployment",
     description:
       "Build shared, server, and client workspaces and serve static assets from Express.",
     priority: "medium",
@@ -150,8 +172,8 @@ const SEED_TASKS: readonly SeedItem[] = [
 
   // Done (4)
   {
-    title: "Initialize SQLite schema with WAL mode",
-    description: "Set up better-sqlite3 database with indexed status and position columns.",
+    title: "Configure MongoDB tasks collection and index",
+    description: "Set up MongoDB driver with compound index on { status: 1, position: 1 }.",
     priority: "high",
     assignee: "Aarav",
     status: "done",
@@ -172,77 +194,61 @@ const SEED_TASKS: readonly SeedItem[] = [
   },
   {
     title: "Implement health check endpoint",
-    description: "Expose GET /health for container orchestration readiness probes.",
+    description: "Expose GET /health for service readiness probes.",
     priority: "low",
     assignee: "Priya",
     status: "done",
   },
 ];
 
-export function initDatabase(dbPath: string, options: { seed?: boolean } = {}): Database.Database {
-  if (dbPath !== ":memory:") {
-    const dir = path.dirname(dbPath);
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      priority TEXT NOT NULL CHECK (priority IN ('low', 'medium', 'high')),
-      assignee TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL CHECK (status IN ('backlog', 'todo', 'in-progress', 'done')),
-      position REAL NOT NULL,
-      updatedAt TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_tasks_status_position
-      ON tasks (status, position);
-  `);
-
-  const shouldSeed = options.seed ?? true;
-  if (shouldSeed) {
-    seedIfEmpty(db);
-  }
-
-  return db;
+export interface DatabaseContext {
+  client: MongoClient;
+  db: Db;
+  tasks: Collection<TaskDoc>;
 }
 
-export function seedIfEmpty(db: Database.Database): void {
-  const row = db.prepare("SELECT COUNT(*) as count FROM tasks").get() as { count: number };
-  if (row.count > 0) {
+export async function initDatabase(
+  mongoUri: string,
+  options: { seed?: boolean; dbName?: string } = {}
+): Promise<DatabaseContext> {
+  const client = new MongoClient(mongoUri);
+  await client.connect();
+
+  const db = options.dbName ? client.db(options.dbName) : client.db();
+  const tasks = db.collection<TaskDoc>("tasks");
+
+  await tasks.createIndex({ status: 1, position: 1 });
+
+  if (options.seed ?? true) {
+    await seedIfEmpty(tasks);
+  }
+
+  return { client, db, tasks };
+}
+
+export async function seedIfEmpty(tasks: Collection<TaskDoc>): Promise<void> {
+  const existingCount = await tasks.countDocuments({}, { limit: 1 });
+  if (existingCount > 0) {
     return;
   }
 
-  const insert = db.prepare(`
-    INSERT INTO tasks (id, title, description, priority, assignee, status, position, updatedAt)
-    VALUES (@id, @title, @description, @priority, @assignee, @status, @position, @updatedAt)
-  `);
-
   const columnCounts = new Map<ColumnId, number>();
+  const docs: TaskDoc[] = [];
 
-  const seedTransaction = db.transaction(() => {
-    for (const item of SEED_TASKS) {
-      const idx = (columnCounts.get(item.status) ?? 0) + 1;
-      columnCounts.set(item.status, idx);
-      const task: Task = {
-        id: crypto.randomUUID(),
-        title: item.title,
-        description: item.description,
-        priority: item.priority,
-        assignee: item.assignee,
-        status: item.status,
-        position: idx * POSITION_STEP,
-        updatedAt: nextIsoTimestamp(),
-      };
-      insert.run(task);
-    }
-  });
+  for (const item of SEED_TASKS) {
+    const idx = (columnCounts.get(item.status) ?? 0) + 1;
+    columnCounts.set(item.status, idx);
+    docs.push({
+      _id: crypto.randomUUID(),
+      title: item.title,
+      description: item.description,
+      priority: item.priority,
+      assignee: item.assignee,
+      status: item.status,
+      position: idx * POSITION_STEP,
+      updatedAt: nextIsoTimestamp(),
+    });
+  }
 
-  seedTransaction();
+  await tasks.insertMany(docs);
 }
