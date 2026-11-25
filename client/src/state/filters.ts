@@ -15,11 +15,7 @@ export const DEFAULT_FILTERS: BoardFilters = {
 };
 
 export function isFilterActive(filters: BoardFilters): boolean {
-  return (
-    filters.q.trim() !== "" ||
-    filters.priority !== "all" ||
-    filters.assignee !== "all"
-  );
+  return filters.q.trim() !== "" || filters.priority !== "all" || filters.assignee !== "all";
 }
 
 /**
@@ -95,10 +91,7 @@ export function parseUrlBoardState(search: string): UrlBoardState {
  * Serializes filters and optional task drawer id into a query string,
  * omitting default values and preserving unrelated params (like ?fail=1).
  */
-export function serializeUrlBoardState(
-  state: UrlBoardState,
-  currentSearch = ""
-): string {
+export function serializeUrlBoardState(state: UrlBoardState, currentSearch = ""): string {
   const params = new URLSearchParams(currentSearch);
 
   const trimmedQ = state.filters.q.trim();

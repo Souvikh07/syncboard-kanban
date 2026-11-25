@@ -42,7 +42,8 @@ const SEED_TASKS: readonly SeedItem[] = [
   },
   {
     title: "Evaluate WebSocket upgrade path",
-    description: "Document trade-offs between SSE + REST and bidirectional WebSockets for presence.",
+    description:
+      "Document trade-offs between SSE + REST and bidirectional WebSockets for presence.",
     priority: "medium",
     assignee: "Aria",
     status: "backlog",
@@ -72,7 +73,8 @@ const SEED_TASKS: readonly SeedItem[] = [
   },
   {
     title: "Add URL query sync for board filters",
-    description: "Keep search query, priority, assignee, and active task drawer reflected in URLSearchParams.",
+    description:
+      "Keep search query, priority, assignee, and active task drawer reflected in URLSearchParams.",
     priority: "high",
     assignee: "Liam",
     status: "todo",
@@ -109,7 +111,8 @@ const SEED_TASKS: readonly SeedItem[] = [
   // In Progress (5)
   {
     title: "Wire SSE real-time event stream",
-    description: "Broadcast task.created, task.updated, and task.deleted with originClientId and mutationId.",
+    description:
+      "Broadcast task.created, task.updated, and task.deleted with originClientId and mutationId.",
     priority: "high",
     assignee: "Aria",
     status: "in-progress",
@@ -123,14 +126,16 @@ const SEED_TASKS: readonly SeedItem[] = [
   },
   {
     title: "Buffer column reorders during active drag",
-    description: "Defer incoming SSE events affecting the column currently being dragged until drop.",
+    description:
+      "Defer incoming SSE events affecting the column currently being dragged until drop.",
     priority: "medium",
     assignee: "Noah",
     status: "in-progress",
   },
   {
     title: "Configure single-service production Dockerfile",
-    description: "Build shared, server, and client workspaces and serve static assets from Express.",
+    description:
+      "Build shared, server, and client workspaces and serve static assets from Express.",
     priority: "medium",
     assignee: "Elena",
     status: "in-progress",

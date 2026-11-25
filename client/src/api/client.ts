@@ -1,9 +1,4 @@
-import type {
-  BoardResponse,
-  CreateTaskInput,
-  Task,
-  UpdateTaskInput,
-} from "@kanban/shared";
+import type { BoardResponse, CreateTaskInput, Task, UpdateTaskInput } from "@kanban/shared";
 
 export const CLIENT_ID: string =
   typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -81,15 +76,18 @@ export async function updateTaskRequest(
   mutationId: string,
   options: { forceFail?: boolean } = {}
 ): Promise<Task> {
-  const res = await fetch(withFailQuery(`/api/tasks/${encodeURIComponent(id)}`, options.forceFail), {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Client-Id": CLIENT_ID,
-      "X-Mutation-Id": mutationId,
-    },
-    body: JSON.stringify(patch),
-  });
+  const res = await fetch(
+    withFailQuery(`/api/tasks/${encodeURIComponent(id)}`, options.forceFail),
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Client-Id": CLIENT_ID,
+        "X-Mutation-Id": mutationId,
+      },
+      body: JSON.stringify(patch),
+    }
+  );
   if (!res.ok) {
     throw new ApiError(res.status, await parseErrorResponse(res));
   }
@@ -101,13 +99,16 @@ export async function deleteTaskRequest(
   mutationId: string,
   options: { forceFail?: boolean } = {}
 ): Promise<void> {
-  const res = await fetch(withFailQuery(`/api/tasks/${encodeURIComponent(id)}`, options.forceFail), {
-    method: "DELETE",
-    headers: {
-      "X-Client-Id": CLIENT_ID,
-      "X-Mutation-Id": mutationId,
-    },
-  });
+  const res = await fetch(
+    withFailQuery(`/api/tasks/${encodeURIComponent(id)}`, options.forceFail),
+    {
+      method: "DELETE",
+      headers: {
+        "X-Client-Id": CLIENT_ID,
+        "X-Mutation-Id": mutationId,
+      },
+    }
+  );
   if (!res.ok) {
     throw new ApiError(res.status, await parseErrorResponse(res));
   }

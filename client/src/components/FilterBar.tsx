@@ -71,19 +71,13 @@ export function FilterBar({
       </select>
 
       {active && (
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm"
-          onClick={onClearFilters}
-        >
+        <button type="button" className="btn btn--ghost btn--sm" onClick={onClearFilters}>
           Clear filters
         </button>
       )}
 
       {isFilterActive(filters) && (
-        <span className="filter-bar__note">
-          Drag &amp; drop disabled while filters are active
-        </span>
+        <span className="filter-bar__note">Drag &amp; drop disabled while filters are active</span>
       )}
     </section>
   );

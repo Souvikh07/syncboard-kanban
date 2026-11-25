@@ -10,7 +10,7 @@ export interface PositionResult {
  * Computes a float position for inserting a task between `prevPosition` and `nextPosition`.
  * - Empty column (both null): returns POSITION_STEP (1024).
  * - Append at end (nextPosition null): returns prevPosition + POSITION_STEP.
- * - Prepend at start (prevPosition null): returns nextPosition / 2 (or 0 - step if <= 0).
+ * - Prepend at start (prevPosition null): returns nextPosition / 2 (flags rebalance near 0).
  * - Insert between two neighbors: midpoint, flagging rebalance when gap < MIN_POSITION_GAP.
  */
 export function computeInsertPosition(
@@ -32,13 +32,11 @@ export function computeInsertPosition(
     return { position: nextPosition / 2, needsRebalance: false };
   }
 
-  // Both non-null
   const prev = prevPosition as number;
   const next = nextPosition as number;
   const gap = next - prev;
   const position = prev + gap / 2;
-  const needsRebalance =
-    gap < MIN_POSITION_GAP || position === prev || position === next;
+  const needsRebalance = gap < MIN_POSITION_GAP || position === prev || position === next;
 
   return { position, needsRebalance };
 }
@@ -48,9 +46,9 @@ export function computeInsertPosition(
  */
 export function columnNeedsRebalance(sortedPositions: readonly number[]): boolean {
   for (let i = 1; i < sortedPositions.length; i++) {
-    const prev = sortedPositions[i - 1]!;
-    const curr = sortedPositions[i]!;
-    if (curr - prev < MIN_POSITION_GAP) {
+    const prev = sortedPositions[i - 1];
+    const curr = sortedPositions[i];
+    if (prev !== undefined && curr !== undefined && curr - prev < MIN_POSITION_GAP) {
       return true;
     }
   }
@@ -61,14 +59,14 @@ export function columnNeedsRebalance(sortedPositions: readonly number[]): boolea
  * Computes 1024-step integer positions for a sorted list of items,
  * returning only the items whose position actually changed.
  */
-export function computeRebalancedPositions<T extends { id: string; position: number }>(
-  sortedItems: readonly T[]
+export function computeRebalancedPositions(
+  sortedItems: readonly { id: string; position: number }[]
 ): Array<{ id: string; position: number }> {
   const updates: Array<{ id: string; position: number }> = [];
   for (let i = 0; i < sortedItems.length; i++) {
     const targetPos = (i + 1) * POSITION_STEP;
-    const item = sortedItems[i]!;
-    if (item.position !== targetPos) {
+    const item = sortedItems[i];
+    if (item && item.position !== targetPos) {
       updates.push({ id: item.id, position: targetPos });
     }
   }

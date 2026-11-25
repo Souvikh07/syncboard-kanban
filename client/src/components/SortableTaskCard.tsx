@@ -19,14 +19,7 @@ export function SortableTaskCard({
   dragDisabled,
   onSelect,
 }: SortableTaskCardProps): React.JSX.Element {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { type: "task", task },
     disabled: isSaving || dragDisabled,
@@ -38,11 +31,7 @@ export function SortableTaskCard({
   };
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={isDragging ? "task-card--dragging" : undefined}
-    >
+    <div ref={setNodeRef} style={style} className={isDragging ? "task-card--dragging" : undefined}>
       <TaskCard
         task={task}
         isSaving={isSaving}

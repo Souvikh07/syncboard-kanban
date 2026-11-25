@@ -12,12 +12,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import {
-  COLUMNS,
-  computeInsertPosition,
-  type ColumnId,
-  type Task,
-} from "@kanban/shared";
+import { COLUMNS, computeInsertPosition, type ColumnId, type Task } from "@kanban/shared";
 import { BoardSkeleton } from "./components/BoardSkeleton.js";
 import { Column } from "./components/Column.js";
 import { FilterBar } from "./components/FilterBar.js";
@@ -50,15 +45,8 @@ function sortTasks(list: readonly Task[]): Task[] {
   );
 }
 
-function syncUrl(
-  filters: BoardFilters,
-  taskId: string | null,
-  mode: "push" | "replace"
-): void {
-  const nextSearch = serializeUrlBoardState(
-    { filters, taskId },
-    window.location.search
-  );
+function syncUrl(filters: BoardFilters, taskId: string | null, mode: "push" | "replace"): void {
+  const nextSearch = serializeUrlBoardState({ filters, taskId }, window.location.search);
   const nextUrl = `${window.location.pathname}${nextSearch}${window.location.hash}`;
   if (mode === "replace") {
     window.history.replaceState({}, "", nextUrl);
@@ -187,10 +175,7 @@ function BoardWorkspace(): React.JSX.Element {
   const allTasks = board?.tasks ?? [];
   const assignees = useMemo(() => deriveAssignees(allTasks), [allTasks]);
   const filteringActive = isFilterActive(filters);
-  const filteredTasks = useMemo(
-    () => filterTasks(allTasks, filters),
-    [allTasks, filters]
-  );
+  const filteredTasks = useMemo(() => filterTasks(allTasks, filters), [allTasks, filters]);
 
   // Unfiltered counts per column + sorted base tasks for DnD
   const baseTasksByColumn = useMemo(() => {
@@ -315,15 +300,11 @@ function BoardWorkspace(): React.JSX.Element {
 
         const activeRect = active.rect.current.translated;
         const isBelow =
-          activeRect !== null &&
-          activeRect.top > over.rect.top + over.rect.height / 2;
+          activeRect !== null && activeRect.top > over.rect.top + over.rect.height / 2;
         nextIndex = overIndex + (isBelow ? 1 : 0);
       }
 
-      if (
-        nextCol !== dragPlacement.targetColumn ||
-        nextIndex !== dragPlacement.targetIndex
-      ) {
+      if (nextCol !== dragPlacement.targetColumn || nextIndex !== dragPlacement.targetIndex) {
         setDragPlacement((prev) =>
           prev
             ? {
@@ -497,11 +478,7 @@ function BoardWorkspace(): React.JSX.Element {
 
             <DragOverlay>
               {activeDragTask ? (
-                <TaskCard
-                  task={activeDragTask}
-                  isOverlay
-                  onSelect={() => {}}
-                />
+                <TaskCard task={activeDragTask} isOverlay onSelect={() => {}} />
               ) : null}
             </DragOverlay>
           </DndContext>

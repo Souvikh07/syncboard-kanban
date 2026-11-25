@@ -12,23 +12,18 @@ interface TaskCardProps {
   dragHandleProps?: Record<string, unknown>;
 }
 
-const AVATAR_COLORS = [
-  "#0284c7",
-  "#7c3aed",
-  "#db2777",
-  "#059669",
-  "#d97706",
-  "#4f46e5",
-];
+const AVATAR_COLORS = ["#0284c7", "#7c3aed", "#db2777", "#059669", "#d97706", "#4f46e5"];
 
 function getInitials(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return "?";
   const parts = trimmed.split(/\s+/);
+  const first = parts[0] ?? "";
+  const second = parts[1] ?? "";
   if (parts.length === 1) {
-    return parts[0]!.slice(0, 2).toUpperCase();
+    return first.slice(0, 2).toUpperCase();
   }
-  return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
+  return `${first.charAt(0)}${second.charAt(0)}`.toUpperCase();
 }
 
 function getAvatarColor(name: string): string {
@@ -87,14 +82,10 @@ export function TaskCard({
         </button>
       </div>
 
-      {task.description && (
-        <p className="task-card__desc">{task.description}</p>
-      )}
+      {task.description && <p className="task-card__desc">{task.description}</p>}
 
       <div className="task-card__footer">
-        <span className={`priority-badge priority-badge--${task.priority}`}>
-          {task.priority}
-        </span>
+        <span className={`priority-badge priority-badge--${task.priority}`}>{task.priority}</span>
 
         <div className="task-card__right">
           {isSaving && <span className="task-card__status-tag">Saving…</span>}

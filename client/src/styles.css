@@ -227,7 +227,9 @@ body {
   flex-direction: column;
   gap: 10px;
   min-height: 460px;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
 }
 
 .column--over {
@@ -330,7 +332,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  transition: box-shadow 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  transition:
+    box-shadow 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
 }
 
 .task-card:hover {

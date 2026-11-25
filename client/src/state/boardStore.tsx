@@ -1,11 +1,4 @@
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   POSITION_STEP,
@@ -74,12 +67,10 @@ interface BoardContextValue {
       onCloseDrawerForDeleted: () => void;
     }
   ) => void;
-  flushBufferedEventsForDrop: (
-    callbacks: {
-      activeDrawerTaskId: string | null;
-      onCloseDrawerForDeleted: () => void;
-    }
-  ) => void;
+  flushBufferedEventsForDrop: (callbacks: {
+    activeDrawerTaskId: string | null;
+    onCloseDrawerForDeleted: () => void;
+  }) => void;
   reconcileOnReconnect: () => Promise<void>;
 }
 
@@ -157,7 +148,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
     isError,
     error,
     refetch,
-  } = useQuery<BoardResponse, Error>({
+  } = useQuery({
     queryKey: ["board"],
     queryFn: async () => {
       const serverData = await fetchBoard();
@@ -372,7 +363,8 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
       if (!currentBoard) return;
       const originalIndex = currentBoard.tasks.findIndex((t) => t.id === taskId);
       if (originalIndex === -1) return;
-      const snapshot = currentBoard.tasks[originalIndex]!;
+      const snapshot = currentBoard.tasks[originalIndex];
+      if (!snapshot) return;
 
       const mutationId = newId();
       pendingDeleteIdsRef.current.add(taskId);
@@ -515,10 +507,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }): Reac
   );
 
   const flushBufferedEventsForDrop = useCallback(
-    (callbacks: {
-      activeDrawerTaskId: string | null;
-      onCloseDrawerForDeleted: () => void;
-    }) => {
+    (callbacks: { activeDrawerTaskId: string | null; onCloseDrawerForDeleted: () => void }) => {
       const buffered = bufferedEventsRef.current;
       if (buffered.length === 0) return;
       bufferedEventsRef.current = [];

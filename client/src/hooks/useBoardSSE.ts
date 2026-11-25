@@ -16,11 +16,7 @@ interface UseBoardSSEOptions {
  * and triggers board reconciliation upon reconnect.
  */
 export function useBoardSSE(options: UseBoardSSEOptions): void {
-  const {
-    handleSSEEvent,
-    setConnectionStatus,
-    reconcileOnReconnect,
-  } = useBoardStore();
+  const { handleSSEEvent, setConnectionStatus, reconcileOnReconnect } = useBoardStore();
 
   const latestOptionsRef = useRef(options);
   latestOptionsRef.current = options;

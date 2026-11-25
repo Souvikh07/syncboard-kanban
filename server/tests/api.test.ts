@@ -183,9 +183,13 @@ describe("Kanban Server API & SSE", () => {
     const cleanDb = initDatabase(":memory:", { seed: false });
     const app = createApp({ db: cleanDb, sse, failRate: 0, minLatencyMs: 0, maxLatencyMs: 0 });
 
-    const t1 = (await request(app).post("/api/tasks").send({ title: "T1", status: "todo" })).body as Task;
-    const t2 = (await request(app).post("/api/tasks").send({ title: "T2", status: "todo" })).body as Task;
-    const t3 = (await request(app).post("/api/tasks").send({ title: "T3", status: "todo" })).body as Task;
+    const t1 = (await request(app).post("/api/tasks").send({ title: "T1", status: "todo" }))
+      .body as Task;
+    const t2 = (await request(app).post("/api/tasks").send({ title: "T2", status: "todo" }))
+      .body as Task;
+    expect(t2.position).toBe(2048);
+    const t3 = (await request(app).post("/api/tasks").send({ title: "T3", status: "todo" }))
+      .body as Task;
 
     const server = app.listen(0);
     const { port } = server.address() as AddressInfo;

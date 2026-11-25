@@ -1,11 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  COLUMNS,
-  PRIORITIES,
-  type ColumnId,
-  type Priority,
-  type Task,
-} from "@kanban/shared";
+import { COLUMNS, PRIORITIES, type ColumnId, type Priority, type Task } from "@kanban/shared";
 import { useBoardStore } from "../state/boardStore.js";
 import { CloseIcon, TrashIcon } from "./Icons.js";
 
@@ -57,13 +51,12 @@ export function TaskDrawer({ task, onClose }: TaskDrawerProps): React.JSX.Elemen
       }
 
       if (e.key === "Tab" && drawerEl) {
-        const focusables = Array.from(
-          drawerEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
-        );
+        const focusables = Array.from(drawerEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
         if (focusables.length === 0) return;
 
-        const first = focusables[0]!;
-        const last = focusables[focusables.length - 1]!;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (!first || !last) return;
 
         if (e.shiftKey) {
           if (document.activeElement === first || !drawerEl.contains(document.activeElement)) {
@@ -171,9 +164,7 @@ export function TaskDrawer({ task, onClose }: TaskDrawerProps): React.JSX.Elemen
                 id="drawer-status"
                 className="select"
                 value={task.status}
-                onChange={(e) =>
-                  updateTask(task.id, { status: e.target.value as ColumnId })
-                }
+                onChange={(e) => updateTask(task.id, { status: e.target.value as ColumnId })}
                 aria-label="Task status"
               >
                 {COLUMNS.map((col) => (
@@ -192,9 +183,7 @@ export function TaskDrawer({ task, onClose }: TaskDrawerProps): React.JSX.Elemen
                 id="drawer-priority"
                 className="select"
                 value={task.priority}
-                onChange={(e) =>
-                  updateTask(task.id, { priority: e.target.value as Priority })
-                }
+                onChange={(e) => updateTask(task.id, { priority: e.target.value as Priority })}
                 aria-label="Task priority"
               >
                 {PRIORITIES.map((p) => (

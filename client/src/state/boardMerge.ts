@@ -1,9 +1,4 @@
-import type {
-  EditableTaskField,
-  SSEEvent,
-  Task,
-  UpdateTaskInput,
-} from "@kanban/shared";
+import type { EditableTaskField, SSEEvent, Task, UpdateTaskInput } from "@kanban/shared";
 
 export interface PendingFieldEntry<K extends EditableTaskField = EditableTaskField> {
   mutationId: string;
@@ -46,7 +41,10 @@ export function applyOptimisticUpdate(
     return { tasks: [...tasks], pending, changedFields: [] };
   }
 
-  const currentTask = tasks[targetIndex]!;
+  const currentTask = tasks[targetIndex];
+  if (!currentTask) {
+    return { tasks: [...tasks], pending, changedFields: [] };
+  }
   const nextPending = clonePendingMap(pending);
   let taskPending = nextPending.get(taskId);
   if (!taskPending) {
@@ -105,7 +103,10 @@ export function applyUpdateSuccess(
     return { tasks: [...tasks], pending: nextPending };
   }
 
-  const localTask = tasks[idx]!;
+  const localTask = tasks[idx];
+  if (!localTask) {
+    return { tasks: [...tasks], pending: nextPending };
+  }
   const mergedTask: Task = { ...serverTask };
 
   if (taskPending) {
@@ -167,7 +168,10 @@ export function applyUpdateFailure(
     return { tasks: [...tasks], pending: nextPending };
   }
 
-  const currentTask = tasks[idx]!;
+  const currentTask = tasks[idx];
+  if (!currentTask) {
+    return { tasks: [...tasks], pending: nextPending };
+  }
   const rolledBack: Task = { ...currentTask };
 
   if (taskPending) {
@@ -180,12 +184,15 @@ export function applyUpdateFailure(
         (rolledBack as Record<EditableTaskField, Task[EditableTaskField]>)[field] =
           entry.previousValue;
         taskPending.delete(field);
-      } else if (snapshots[field] !== undefined) {
-        // Propagate the earlier pre-failure baseline to the newer mutation
-        taskPending.set(field, {
-          mutationId: entry.mutationId,
-          previousValue: snapshots[field] as Task[EditableTaskField],
-        });
+      } else {
+        const snapshotVal = snapshots[field];
+        if (snapshotVal !== undefined) {
+          // Propagate the earlier pre-failure baseline to the newer mutation
+          taskPending.set(field, {
+            mutationId: entry.mutationId,
+            previousValue: snapshotVal,
+          });
+        }
       }
     }
     if (taskPending.size === 0) {
@@ -325,7 +332,15 @@ function mergeRemoteTask(
     };
   }
 
-  const localTask = tasks[idx]!;
+  const localTask = tasks[idx];
+  if (!localTask) {
+    return {
+      tasks: [...tasks],
+      pending: nextPending,
+      ignored: false,
+      deletedActiveTask: false,
+    };
+  }
   const merged: Task = { ...incoming };
 
   if (taskPending) {
@@ -333,8 +348,7 @@ function mergeRemoteTask(
       const entry = taskPending.get(field);
       if (entry) {
         // Keep local optimistic value, update rollback baseline to incoming server value
-        (merged as Record<EditableTaskField, Task[EditableTaskField]>)[field] =
-          localTask[field];
+        (merged as Record<EditableTaskField, Task[EditableTaskField]>)[field] = localTask[field];
         taskPending.set(field, {
           mutationId: entry.mutationId,
           previousValue: incoming[field],
@@ -383,8 +397,7 @@ export function reconcileBoardFromServer(
       for (const field of EDITABLE_FIELDS) {
         const entry = taskPending.get(field);
         if (entry) {
-          (merged as Record<EditableTaskField, Task[EditableTaskField]>)[field] =
-            localTask[field];
+          (merged as Record<EditableTaskField, Task[EditableTaskField]>)[field] = localTask[field];
           taskPending.set(field, {
             mutationId: entry.mutationId,
             previousValue: serverTask[field],

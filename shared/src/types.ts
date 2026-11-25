@@ -30,12 +30,7 @@ export interface Task {
 }
 
 export type EditableTaskField =
-  | "title"
-  | "description"
-  | "priority"
-  | "assignee"
-  | "status"
-  | "position";
+  "title" | "description" | "priority" | "assignee" | "status" | "position";
 
 export interface BoardResponse {
   columns: Column[];

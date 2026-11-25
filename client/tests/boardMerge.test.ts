@@ -183,7 +183,13 @@ describe("boardMerge optimistic updates, rollback, and SSE merge", () => {
   it("reconciles server snapshot on reconnect while preserving pending fields and temp tasks", () => {
     const localT1 = makeTask({ id: "t1", title: "Pending Title", priority: "low" });
     const tempTask = makeTask({ id: "temp-1", title: "Saving Task" });
-    const m1 = applyOptimisticUpdate([localT1], new Map(), "t1", { title: "Pending Title" }, "mut-1");
+    const m1 = applyOptimisticUpdate(
+      [localT1],
+      new Map(),
+      "t1",
+      { title: "Pending Title" },
+      "mut-1"
+    );
 
     const serverT1 = makeTask({
       id: "t1",

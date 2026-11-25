@@ -6,12 +6,9 @@ import { SSEBroker } from "./sse.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const port = Number.parseInt(process.env.PORT ?? "3001", 10);
-const dbPath =
-  process.env.DB_PATH ?? path.resolve(__dirname, "../../data/kanban.db");
+const dbPath = process.env.DB_PATH ?? path.resolve(__dirname, "../../data/kanban.db");
 const clientDistDir =
-  process.env.NODE_ENV === "production"
-    ? path.resolve(__dirname, "../../client/dist")
-    : null;
+  process.env.NODE_ENV === "production" ? path.resolve(__dirname, "../../client/dist") : null;
 
 const db = initDatabase(dbPath);
 const sse = new SSEBroker({ heartbeatMs: 15_000 });

@@ -96,9 +96,7 @@ export function createApp(config: AppConfig): Express {
   const selectColumnStmt = db.prepare(
     "SELECT * FROM tasks WHERE status = ? ORDER BY position ASC, updatedAt DESC, id ASC"
   );
-  const maxPositionStmt = db.prepare(
-    "SELECT MAX(position) as maxPos FROM tasks WHERE status = ?"
-  );
+  const maxPositionStmt = db.prepare("SELECT MAX(position) as maxPos FROM tasks WHERE status = ?");
   const insertTaskStmt = db.prepare(`
     INSERT INTO tasks (id, title, description, priority, assignee, status, position, updatedAt)
     VALUES (@id, @title, @description, @priority, @assignee, @status, @position, @updatedAt)
@@ -123,8 +121,7 @@ export function createApp(config: AppConfig): Express {
     const positions = colTasks.map((t) => t.position);
     const firstPos = positions[0];
     const needs =
-      columnNeedsRebalance(positions) ||
-      (firstPos !== undefined && firstPos <= MIN_POSITION_GAP);
+      columnNeedsRebalance(positions) || (firstPos !== undefined && firstPos <= MIN_POSITION_GAP);
 
     if (needs) {
       const updates = computeRebalancedPositions(colTasks);
@@ -203,8 +200,7 @@ export function createApp(config: AppConfig): Express {
       const positions = colTasks.map((t) => t.position);
       const firstPos = positions[0];
       const needs =
-        columnNeedsRebalance(positions) ||
-        (firstPos !== undefined && firstPos <= MIN_POSITION_GAP);
+        columnNeedsRebalance(positions) || (firstPos !== undefined && firstPos <= MIN_POSITION_GAP);
 
       if (needs) {
         const updates = computeRebalancedPositions(colTasks);
@@ -285,7 +281,11 @@ export function createApp(config: AppConfig): Express {
       let nextPosition = input.position ?? existing.position;
 
       // If moved to a new column without an explicit position, append at the end of that column.
-      if (input.status !== undefined && input.status !== existing.status && input.position === undefined) {
+      if (
+        input.status !== undefined &&
+        input.status !== existing.status &&
+        input.position === undefined
+      ) {
         const row = maxPositionStmt.get(nextStatus) as { maxPos: number | null };
         nextPosition = row.maxPos === null ? POSITION_STEP : row.maxPos + POSITION_STEP;
       }
@@ -302,7 +302,8 @@ export function createApp(config: AppConfig): Express {
         updatedAt: now,
       };
 
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE tasks
         SET title = @title,
             description = @description,
@@ -312,7 +313,8 @@ export function createApp(config: AppConfig): Express {
             position = @position,
             updatedAt = @updatedAt
         WHERE id = @id
-      `).run(updatedFields);
+      `
+      ).run(updatedFields);
 
       const eventsToEmit: SSEEvent[] = [];
       let finalTask = updatedFields;

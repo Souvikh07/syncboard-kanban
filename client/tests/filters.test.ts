@@ -83,10 +83,7 @@ describe("filter composition and URL parse/serialize", () => {
 
   it("serializes URL state omitting defaults and preserving ?fail=1", () => {
     expect(
-      serializeUrlBoardState(
-        { filters: DEFAULT_FILTERS, taskId: null },
-        "?q=old&priority=low"
-      )
+      serializeUrlBoardState({ filters: DEFAULT_FILTERS, taskId: null }, "?q=old&priority=low")
     ).toBe("");
 
     expect(
