@@ -208,4 +208,40 @@ describe("boardMerge optimistic updates, rollback, and SSE merge", () => {
     expect(res.tasks.some((t) => t.id === "t2")).toBe(true);
     expect(res.tasks.some((t) => t.id === "temp-1")).toBe(true);
   });
+
+  it("dedupes task.created and discards pending mutations on task.deleted", () => {
+    const t1 = makeTask({ id: "t1", title: "Existing" });
+    const m1 = applyOptimisticUpdate([t1], new Map(), "t1", { title: "Local" }, "mut-1");
+
+    const dupCreate = applyRemoteSSEEvent(
+      m1.tasks,
+      m1.pending,
+      {
+        type: "task.created",
+        task: makeTask({ id: "t1", title: "Existing", updatedAt: "2026-01-01T00:00:00.000Z" }),
+        originClientId: "other",
+        mutationId: "m-create",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      new Set()
+    );
+    expect(dupCreate.ignored).toBe(true);
+    expect(dupCreate.tasks).toHaveLength(1);
+
+    const delRes = applyRemoteSSEEvent(
+      m1.tasks,
+      m1.pending,
+      {
+        type: "task.deleted",
+        id: "t1",
+        originClientId: "other",
+        mutationId: "m-del",
+        updatedAt: "2026-01-01T00:00:05.000Z",
+      },
+      new Set()
+    );
+    expect(delRes.deletedActiveTask).toBe(true);
+    expect(delRes.tasks).toHaveLength(0);
+    expect(delRes.pending.has("t1")).toBe(false);
+  });
 });

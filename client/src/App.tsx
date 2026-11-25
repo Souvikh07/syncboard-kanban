@@ -24,6 +24,7 @@ import { FilterBar } from "./components/FilterBar.js";
 import { TaskCard } from "./components/TaskCard.js";
 import { TaskDrawer } from "./components/TaskDrawer.js";
 import { ToastContainer } from "./components/ToastContainer.js";
+import { useBoardSSE } from "./hooks/useBoardSSE.js";
 import { BoardProvider, useBoardStore } from "./state/boardStore.js";
 import {
   DEFAULT_FILTERS,
@@ -86,6 +87,7 @@ function BoardWorkspace(): React.JSX.Element {
   const [filters, setFilters] = useState<BoardFilters>(initialUrlState.filters);
   const [searchInput, setSearchInput] = useState<string>(initialUrlState.filters.q);
   const [dragPlacement, setDragPlacement] = useState<DragPlacement | null>(null);
+  const [dndResetKey, setDndResetKey] = useState(0);
 
   // Debounce title search (~250ms) and sync with history.replaceState
   useEffect(() => {
@@ -122,6 +124,32 @@ function BoardWorkspace(): React.JSX.Element {
     setSelectedTaskId(null);
     syncUrl(filters, null, "push");
   }, [filters]);
+
+  const activeDragColumns = useMemo(() => {
+    const set = new Set<ColumnId>();
+    if (dragPlacement) {
+      set.add(dragPlacement.originColumn);
+      set.add(dragPlacement.targetColumn);
+    }
+    return set;
+  }, [dragPlacement]);
+
+  const handleCancelDragFromRemote = useCallback(() => {
+    setDragPlacement(null);
+    setDndResetKey((k) => k + 1);
+    flushBufferedEventsForDrop({
+      activeDrawerTaskId: selectedTaskId,
+      onCloseDrawerForDeleted: handleCloseDrawer,
+    });
+  }, [flushBufferedEventsForDrop, handleCloseDrawer, selectedTaskId]);
+
+  useBoardSSE({
+    activeDragTaskId: dragPlacement?.taskId ?? null,
+    activeDragColumns,
+    activeDrawerTaskId: selectedTaskId,
+    onCancelDrag: handleCancelDragFromRemote,
+    onCloseDrawerForDeleted: handleCloseDrawer,
+  });
 
   const handlePriorityChange = useCallback(
     (priority: PriorityFilter) => {
@@ -326,13 +354,18 @@ function BoardWorkspace(): React.JSX.Element {
     (event: DragEndEvent) => {
       const { active, over } = event;
       const placement = dragPlacement;
-      finalizeDrag();
 
-      if (!over || !placement || !board) return;
+      if (!over || !placement || !board) {
+        finalizeDrag();
+        return;
+      }
 
       const activeId = String(active.id);
       const activeTask = board.tasks.find((t) => t.id === activeId);
-      if (!activeTask) return;
+      if (!activeTask) {
+        finalizeDrag();
+        return;
+      }
 
       const overId = String(over.id);
       const targetColumn = placement.targetColumn;
@@ -340,7 +373,10 @@ function BoardWorkspace(): React.JSX.Element {
       if (targetColumn === activeTask.status) {
         const colTasks = baseTasksByColumn.get(targetColumn) ?? [];
         const oldIndex = colTasks.findIndex((t) => t.id === activeId);
-        if (oldIndex === -1) return;
+        if (oldIndex === -1) {
+          finalizeDrag();
+          return;
+        }
 
         let newIndex = placement.targetIndex;
         if (!overId.startsWith("column:")) {
@@ -350,13 +386,13 @@ function BoardWorkspace(): React.JSX.Element {
           }
         }
         const clampedNewIndex = Math.min(Math.max(0, newIndex), colTasks.length - 1);
-        if (clampedNewIndex === oldIndex) return;
-
-        const reordered = arrayMove(colTasks, oldIndex, clampedNewIndex);
-        const prevPos = reordered[clampedNewIndex - 1]?.position ?? null;
-        const nextPos = reordered[clampedNewIndex + 1]?.position ?? null;
-        const { position } = computeInsertPosition(prevPos, nextPos);
-        updateTask(activeId, { position });
+        if (clampedNewIndex !== oldIndex) {
+          const reordered = arrayMove(colTasks, oldIndex, clampedNewIndex);
+          const prevPos = reordered[clampedNewIndex - 1]?.position ?? null;
+          const nextPos = reordered[clampedNewIndex + 1]?.position ?? null;
+          const { position } = computeInsertPosition(prevPos, nextPos);
+          updateTask(activeId, { position });
+        }
       } else {
         const targetList = (baseTasksByColumn.get(targetColumn) ?? []).filter(
           (t) => t.id !== activeId
@@ -367,6 +403,8 @@ function BoardWorkspace(): React.JSX.Element {
         const { position } = computeInsertPosition(prevPos, nextPos);
         updateTask(activeId, { status: targetColumn, position });
       }
+
+      finalizeDrag();
     },
     [baseTasksByColumn, board, dragPlacement, finalizeDrag, updateTask]
   );
@@ -432,6 +470,7 @@ function BoardWorkspace(): React.JSX.Element {
 
         {board && (
           <DndContext
+            key={dndResetKey}
             sensors={sensors}
             collisionDetection={closestCorners}
             onDragStart={handleDragStart}
