@@ -1,8 +1,10 @@
 import React, { useState } from "react";
+import { useDroppable } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { PRIORITIES, type Column as ColumnType, type Priority, type Task } from "@kanban/shared";
 import { useBoardStore } from "../state/boardStore.js";
 import { PlusIcon } from "./Icons.js";
-import { TaskCard } from "./TaskCard.js";
+import { SortableTaskCard } from "./SortableTaskCard.js";
 
 interface ColumnProps {
   column: ColumnType;
@@ -25,6 +27,11 @@ export function Column({
   const [assignee, setAssignee] = useState("");
   const [priority, setPriority] = useState<Priority>("medium");
 
+  const { setNodeRef, isOver } = useDroppable({
+    id: `column:${column.id}`,
+    data: { type: "column", columnId: column.id },
+  });
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = title.trim();
@@ -43,7 +50,11 @@ export function Column({
   };
 
   return (
-    <section className="column" aria-label={`${column.title} column`}>
+    <section
+      ref={setNodeRef}
+      className={`column ${isOver ? "column--over" : ""}`}
+      aria-label={`${column.title} column`}
+    >
       <header className="column__header">
         <div className="column__title-group">
           <span className={`column__dot column__dot--${column.id}`} aria-hidden="true" />
@@ -117,24 +128,26 @@ export function Column({
         </form>
       )}
 
-      <div className="column__list">
-        {tasks.length === 0 ? (
-          <div className="column__empty">
-            {isFiltered ? "No matching tasks" : "No tasks in this column"}
-          </div>
-        ) : (
-          tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              isSaving={savingTaskIds.has(task.id)}
-              isPending={pendingTaskIds.has(task.id)}
-              dragDisabled={true}
-              onSelect={onSelectTask}
-            />
-          ))
-        )}
-      </div>
+      <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+        <div className="column__list">
+          {tasks.length === 0 ? (
+            <div className="column__empty">
+              {isFiltered ? "No matching tasks" : "No tasks in this column"}
+            </div>
+          ) : (
+            tasks.map((task) => (
+              <SortableTaskCard
+                key={task.id}
+                task={task}
+                isSaving={savingTaskIds.has(task.id)}
+                isPending={pendingTaskIds.has(task.id)}
+                dragDisabled={isFiltered}
+                onSelect={onSelectTask}
+              />
+            ))
+          )}
+        </div>
+      </SortableContext>
     </section>
   );
 }
