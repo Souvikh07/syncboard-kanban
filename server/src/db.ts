@@ -30,14 +30,14 @@ const SEED_TASKS: readonly SeedItem[] = [
     title: "Add keyboard shortcut guide modal",
     description: "Display available keyboard shortcuts when the user presses '?'.",
     priority: "low",
-    assignee: "Maya",
+    assignee: "Ananya",
     status: "backlog",
   },
   {
     title: "Support CSV export for sprint retrospective",
     description: "Allow exporting filtered tasks as a downloadable CSV report.",
     priority: "low",
-    assignee: "Liam",
+    assignee: "Rohan",
     status: "backlog",
   },
   {
@@ -45,21 +45,21 @@ const SEED_TASKS: readonly SeedItem[] = [
     description:
       "Document trade-offs between SSE + REST and bidirectional WebSockets for presence.",
     priority: "medium",
-    assignee: "Aria",
+    assignee: "Aarav",
     status: "backlog",
   },
   {
     title: "Design dark mode color tokens",
     description: "Define high-contrast surface, border, and priority badge variables.",
     priority: "low",
-    assignee: "Noah",
+    assignee: "Vikram",
     status: "backlog",
   },
   {
     title: "Add archived column retention policy",
     description: "Automatically hide tasks completed more than 30 days ago behind a toggle.",
     priority: "medium",
-    assignee: "Elena",
+    assignee: "Priya",
     status: "backlog",
   },
 
@@ -68,7 +68,7 @@ const SEED_TASKS: readonly SeedItem[] = [
     title: "Implement optimistic rollback toast actions",
     description: "Surface a Retry button on failed mutations so users can recover immediately.",
     priority: "high",
-    assignee: "Aria",
+    assignee: "Aarav",
     status: "todo",
   },
   {
@@ -76,35 +76,35 @@ const SEED_TASKS: readonly SeedItem[] = [
     description:
       "Keep search query, priority, assignee, and active task drawer reflected in URLSearchParams.",
     priority: "high",
-    assignee: "Liam",
+    assignee: "Rohan",
     status: "todo",
   },
   {
     title: "Build focus trap for task detail drawer",
     description: "Ensure Tab cycling stays inside the drawer and Escape closes it cleanly.",
     priority: "medium",
-    assignee: "Maya",
+    assignee: "Ananya",
     status: "todo",
   },
   {
     title: "Write position rebalancing integration tests",
     description: "Verify 1e-6 threshold triggers a transactional 1024-step rebalance.",
     priority: "high",
-    assignee: "Noah",
+    assignee: "Vikram",
     status: "todo",
   },
   {
     title: "Add per-column empty state messaging",
     description: "Show helpful feedback when a column has zero tasks or zero filter matches.",
     priority: "low",
-    assignee: "Elena",
+    assignee: "Priya",
     status: "todo",
   },
   {
     title: "Audit aria-labels on drag handles and cards",
     description: "Test screen reader announcements for card moves across columns.",
     priority: "medium",
-    assignee: "Maya",
+    assignee: "Ananya",
     status: "todo",
   },
 
@@ -114,14 +114,14 @@ const SEED_TASKS: readonly SeedItem[] = [
     description:
       "Broadcast task.created, task.updated, and task.deleted with originClientId and mutationId.",
     priority: "high",
-    assignee: "Aria",
+    assignee: "Aarav",
     status: "in-progress",
   },
   {
     title: "Serialize per-task mutation queues",
     description: "Prevent drag-and-drop and immediate drawer edits from racing on the same task.",
     priority: "high",
-    assignee: "Liam",
+    assignee: "Rohan",
     status: "in-progress",
   },
   {
@@ -129,7 +129,7 @@ const SEED_TASKS: readonly SeedItem[] = [
     description:
       "Defer incoming SSE events affecting the column currently being dragged until drop.",
     priority: "medium",
-    assignee: "Noah",
+    assignee: "Vikram",
     status: "in-progress",
   },
   {
@@ -137,14 +137,14 @@ const SEED_TASKS: readonly SeedItem[] = [
     description:
       "Build shared, server, and client workspaces and serve static assets from Express.",
     priority: "medium",
-    assignee: "Elena",
+    assignee: "Priya",
     status: "in-progress",
   },
   {
     title: "Add live connection status indicator",
     description: "Show whether the SSE EventSource is live or currently reconnecting.",
     priority: "low",
-    assignee: "Maya",
+    assignee: "Ananya",
     status: "in-progress",
   },
 
@@ -153,28 +153,28 @@ const SEED_TASKS: readonly SeedItem[] = [
     title: "Initialize SQLite schema with WAL mode",
     description: "Set up better-sqlite3 database with indexed status and position columns.",
     priority: "high",
-    assignee: "Aria",
+    assignee: "Aarav",
     status: "done",
   },
   {
     title: "Define shared Task and SSE types",
     description: "Create strict TypeScript contracts in /shared consumed by server and client.",
     priority: "medium",
-    assignee: "Liam",
+    assignee: "Rohan",
     status: "done",
   },
   {
     title: "Set up Zod request body validation",
     description: "Return structured 400 errors on invalid POST and PATCH payloads.",
     priority: "medium",
-    assignee: "Noah",
+    assignee: "Vikram",
     status: "done",
   },
   {
     title: "Implement health check endpoint",
     description: "Expose GET /health for container orchestration readiness probes.",
     priority: "low",
-    assignee: "Elena",
+    assignee: "Priya",
     status: "done",
   },
 ];
